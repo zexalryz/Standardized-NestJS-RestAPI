@@ -521,6 +521,14 @@ npm run dev | npx pino-pretty
 
 ---
 
+## ✦ Environment
+
+Copy `.env.example` to `.env` in the project root and adjust as needed:
+
+```bash
+cp .env.example .env
+```
+
 ## ✦ Environment Variables
 
 | Variable | Default | Description |
