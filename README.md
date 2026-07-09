@@ -430,12 +430,88 @@ npm run dev | npx pino-pretty
 |----------|---------|-------------|
 | `API_PORT` | `4000` | HTTP port |
 | `NODE_ENV` | `development` | Environment (controls `entrypoint.sh` behavior — production uses `migrate deploy`, dev uses `db push` + seed) |
+| `PUBLIC_URL` | — | Public HTTPS origin (e.g. `https://api.example.com`). When set, Swagger UI uses this URL for the spec, HSTS headers are disabled (trusts the upstream proxy), and `trust proxy` is enabled |
 | `CORS_ORIGIN` | `*` | Allowed CORS origin (set to your frontend URL in production, e.g. `https://app.example.com`) |
 | `DATABASE_URL` | `file:./dev.db` | Prisma datasource URL |
 | `JWT_SECRET` | `dev-secret-123` | HMAC secret for access tokens |
 | `JWT_EXPIRATION` | `15m` | Access token TTL (ms‑format, e.g. `15m`, `1h`) |
 | `THROTTLE_TTL` | `60` | Rate‑limit window (seconds) |
 | `THROTTLE_LIMIT` | `60` | Max requests per window |
+
+---
+
+## ✦ Deploying with HTTPS (CloudFront, ALB, nginx)
+
+When the API runs on an **EC2 instance behind an HTTPS proxy** (CloudFront, ALB, nginx), the Swagger UI page loads over HTTP but the browser fails to fetch CSS/JS assets because they get auto‑upgraded to HTTPS (`ERR_SSL_PROTOCOL_ERROR`). This is **not a bug** — NestJS speaks plain HTTP on the backend, and the proxy handles TLS.
+
+### Solution: set `PUBLIC_URL`
+
+```bash
+# Example for CloudFront:
+export PUBLIC_URL=https://d123abc.cloudfront.net
+npm run start:prod
+```
+
+| `PUBLIC_URL` does | Why |
+|---|---|
+| Disables Helmet's HSTS header | Prevents HTTP → HTTPS upgrade before the proxy |
+| Sets `app.set('trust proxy', 1)` | Express trusts the `X-Forwarded-*` headers from the proxy |
+| Adds a server entry to the OpenAPI spec | "Try it out" requests hit the correct origin |
+| Configures Swagger's `url` option | Swagger JS loads the spec from the public HTTPS endpoint |
+
+### ☁️ CloudFront (recommended for EC2)
+
+1. Create a CloudFront distribution with **Origin** = `http://<EC2-PUBLIC-IP>:5050`
+2. Keep default **Viewer Protocol Policy** = `Redirect HTTP to HTTPS`
+3. Add a custom header (e.g. `X-Origin-Verify: secret123`) in CloudFront and **validate it in the app** to block direct HTTP access
+4. Set these env vars on the EC2 instance:
+
+```bash
+PUBLIC_URL=https://<distribution-domain>.cloudfront.net
+CORS_ORIGIN=https://your-frontend.com
+NODE_ENV=production
+JWT_SECRET=<strong-random-secret>
+```
+
+> **No ACM certificate needed** — CloudFront provides one automatically.
+
+### 🔄 Application Load Balancer
+
+1. Create an ALB with an HTTPS listener (port 443)
+2. Request a free ACM certificate in the same region
+3. Target group forwards HTTP:5050 to the EC2 instance
+4. Use the ALB DNS name as `PUBLIC_URL`
+
+### 🔧 nginx + Let's Encrypt (self‑managed)
+
+```nginx
+# /etc/nginx/sites-available/api
+server {
+    listen 443 ssl;
+    server_name api.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/api.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/api.example.com/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:5050;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+server {
+    listen 80;
+    server_name api.example.com;
+    return 301 https://$host$request_uri;
+}
+```
+
+```bash
+sudo certbot --nginx -d api.example.com
+PUBLIC_URL=https://api.example.com
+```
 
 ---
 

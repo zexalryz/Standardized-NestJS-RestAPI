@@ -15,12 +15,24 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
 
   app.useLogger(app.get(Logger));
-  app.use(helmet());
 
   const config = app.get(ConfigService);
+  const publicUrl = config.get<string>('PUBLIC_URL');
+  const nodeEnv = config.get<string>('NODE_ENV', 'development');
+
+  // --- Security headers ---
+  // When behind an HTTPS proxy (CloudFront, ALB, nginx), disable HSTS
+  // so the raw HTTP backend never tells the browser to force HTTPS directly.
+  app.use(helmet({
+    strictTransportSecurity: publicUrl ? false : undefined,
+  }));
+
+  if (publicUrl) {
+    // trust first proxy (CloudFront, ALB, nginx) for correct X-Forwarded-* headers
+    app.getHttpAdapter().getInstance().set('trust proxy', 1);
+  }
 
   // Production env validation
-  const nodeEnv = config.get<string>('NODE_ENV', 'development');
   if (nodeEnv === 'production') {
     try {
       config.getOrThrow('JWT_SECRET');
@@ -51,16 +63,29 @@ async function bootstrap() {
     .setTitle('Auth API')
     .setDescription('## Standardized Authentication API\n\nUser authentication with invite-code registration, refresh-token rotation, role-based access control (RBAC), rate limiting, and structured logging.\n\n### Features\n- **Auth** — register, login, refresh, logout\n- **RBAC** — Admin / Moderator / Donator / User\n- **Rate limiting** — 60 req/min (configurable)\n- **Multi-DB** — PostgreSQL · MySQL · SQL Server · MongoDB · SQLite\n- **Logging** — Structured JSON via Pino')
     .setVersion('2.0.0')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('docs', app, document);
+    .addBearerAuth();
 
-  await app.listen(port);
+  if (publicUrl) {
+    // Point "Try it out" requests to the public HTTPS origin
+    swaggerConfig.addServer(publicUrl);
+  }
+
+  const document = SwaggerModule.createDocument(app, swaggerConfig.build());
+
+  SwaggerModule.setup('docs', app, document, {
+    swaggerOptions: publicUrl ? { url: `${publicUrl}/docs-json` } : undefined,
+  });
+
+  await app.listen(port, '0.0.0.0');
   const logger = app.get(Logger);
   logger.log(`Server running on http://localhost:${port}`);
-  logger.log(`Swagger docs at  http://localhost:${port}/docs`);
-  logger.log(`Health check at http://localhost:${port}/api/health`);
-  logger.log(`Metrics at     http://localhost:${port}/api/metrics`);
+  if (publicUrl) {
+    logger.log(`Public URL:    ${publicUrl}`);
+    logger.log(`Swagger docs:  ${publicUrl}/docs`);
+  } else {
+    logger.log(`Swagger docs:  http://localhost:${port}/docs`);
+  }
+  logger.log(`Health check:  http://localhost:${port}/api/health`);
+  logger.log(`Metrics:       http://localhost:${port}/api/metrics`);
 }
 bootstrap();
