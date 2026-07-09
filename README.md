@@ -440,40 +440,49 @@ npm run dev | npx pino-pretty
 
 ---
 
-## ✦ Deploying with HTTPS (CloudFront, ALB, nginx)
+## ✦ Deploying with HTTPS (Cloudflare Tunnel, ALB, nginx)
 
-When the API runs on an **EC2 instance behind an HTTPS proxy** (CloudFront, ALB, nginx), the Swagger UI page loads over HTTP but the browser fails to fetch CSS/JS assets because they get auto‑upgraded to HTTPS (`ERR_SSL_PROTOCOL_ERROR`). This is **not a bug** — NestJS speaks plain HTTP on the backend, and the proxy handles TLS.
+When the API runs on an **EC2 instance** accessed via public IP over HTTP, Swagger UI fails because browsers auto‑upgrade subresource requests to HTTPS (`ERR_SSL_PROTOCOL_ERROR`). The fix: set `PUBLIC_URL` to point requests at the public HTTPS origin.
 
-### Solution: set `PUBLIC_URL`
+### 👉 Quick fix: Cloudflare Tunnel (free, no domain needed)
+
+Creates an HTTPS tunnel in one command — no account required.
 
 ```bash
-# Example for CloudFront:
-export PUBLIC_URL=https://d123abc.cloudfront.net
+# 1. Install cloudflared
+curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
+chmod +x cloudflared
+sudo mv cloudflared /usr/local/bin/cloudflared
+
+# 2. Start tunnel (keep this terminal open)
+cloudflared tunnel --url http://localhost:5050
+```
+
+Look for this in the output:
+
+```
+Your quick Tunnel has been created! Visit it at:
+https://<random-words>.trycloudflare.com
+```
+
+```bash
+# 3. Restart the API with PUBLIC_URL
+export PUBLIC_URL=https://<random-words>.trycloudflare.com
 npm run start:prod
 ```
 
-| `PUBLIC_URL` does | Why |
+Open **`https://<random-words>.trycloudflare.com/docs`** — Swagger UI works over HTTPS.
+
+> ⚠️ Quick tunnels have no uptime guarantee. For production, use a named tunnel with a Cloudflare account: https://developers.cloudflare.com/cloudflare-one/connections/connect-apps
+
+### What `PUBLIC_URL` does
+
+| Effect | Reason |
 |---|---|
-| Disables Helmet's HSTS header | Prevents HTTP → HTTPS upgrade before the proxy |
-| Sets `app.set('trust proxy', 1)` | Express trusts the `X-Forwarded-*` headers from the proxy |
+| Disables Helmet's HSTS header | Prevents browser from forcing HTTPS before the proxy |
+| Sets `trust proxy` | Express trusts `X-Forwarded-*` headers from the proxy |
 | Adds a server entry to the OpenAPI spec | "Try it out" requests hit the correct origin |
-| Configures Swagger's `url` option | Swagger JS loads the spec from the public HTTPS endpoint |
-
-### ☁️ CloudFront (recommended for EC2)
-
-1. Create a CloudFront distribution with **Origin** = `http://<EC2-PUBLIC-IP>:5050`
-2. Keep default **Viewer Protocol Policy** = `Redirect HTTP to HTTPS`
-3. Add a custom header (e.g. `X-Origin-Verify: secret123`) in CloudFront and **validate it in the app** to block direct HTTP access
-4. Set these env vars on the EC2 instance:
-
-```bash
-PUBLIC_URL=https://<distribution-domain>.cloudfront.net
-CORS_ORIGIN=https://your-frontend.com
-NODE_ENV=production
-JWT_SECRET=<strong-random-secret>
-```
-
-> **No ACM certificate needed** — CloudFront provides one automatically.
+| Configures Swagger's `url` option | Spec loaded from the public HTTPS endpoint |
 
 ### 🔄 Application Load Balancer
 
@@ -482,7 +491,7 @@ JWT_SECRET=<strong-random-secret>
 3. Target group forwards HTTP:5050 to the EC2 instance
 4. Use the ALB DNS name as `PUBLIC_URL`
 
-### 🔧 nginx + Let's Encrypt (self‑managed)
+### 🔧 nginx + Let's Encrypt
 
 ```nginx
 # /etc/nginx/sites-available/api

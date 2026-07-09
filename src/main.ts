@@ -29,7 +29,7 @@ async function bootstrap() {
 
   if (publicUrl) {
     // trust first proxy (CloudFront, ALB, nginx) for correct X-Forwarded-* headers
-    app.getHttpAdapter().getInstance().set('trust proxy', 1);
+    (app.getHttpAdapter().getInstance() as any).set('trust proxy', 1);
   }
 
   // Production env validation
