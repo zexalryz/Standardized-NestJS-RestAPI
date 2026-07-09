@@ -1,5 +1,6 @@
+import helmet from 'helmet';
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, Logger as NestLogger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { Reflector } from '@nestjs/core';
@@ -14,8 +15,22 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
 
   app.useLogger(app.get(Logger));
+  app.use(helmet());
 
   const config = app.get(ConfigService);
+
+  // Production env validation
+  const nodeEnv = config.get<string>('NODE_ENV', 'development');
+  if (nodeEnv === 'production') {
+    try {
+      config.getOrThrow('JWT_SECRET');
+      config.getOrThrow('CORS_ORIGIN');
+    } catch {
+      NestLogger.error('Missing required environment variables in production (JWT_SECRET, CORS_ORIGIN)');
+      process.exit(1);
+    }
+  }
+
   const port = config.get<number>('API_PORT', 4000);
 
   app.setGlobalPrefix('api');
@@ -42,7 +57,10 @@ async function bootstrap() {
   SwaggerModule.setup('docs', app, document);
 
   await app.listen(port);
-  app.get(Logger).log(`Server running on http://localhost:${port}`);
-  app.get(Logger).log(`Swagger docs at  http://localhost:${port}/docs`);
+  const logger = app.get(Logger);
+  logger.log(`Server running on http://localhost:${port}`);
+  logger.log(`Swagger docs at  http://localhost:${port}/docs`);
+  logger.log(`Health check at http://localhost:${port}/api/health`);
+  logger.log(`Metrics at     http://localhost:${port}/api/metrics`);
 }
 bootstrap();

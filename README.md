@@ -29,13 +29,26 @@ A **standardized REST API** for user authentication, built as a starter template
 | Invite code generation (Admin / Moderator) | ✅ |
 | JWT access tokens (short‑lived) | ✅ |
 | Refresh token rotation (UUID + DB storage) | ✅ |
+| **Atomic** rotation (concurrent‑race safe via `updateMany`) | ✅ |
 | Role‑Based Access Control (Admin / Moderator / Donator / User) | ✅ |
-| Rate limiting (configurable) | ✅ |
+| Rate limiting (configurable + **stricter per‑route for auth**) | ✅ |
 | Structured JSON logging (Pino) | ✅ |
+| **Request correlation ID** (`genReqId` + `x-request-id`) | ✅ |
+| **Security headers** (Helmet) | ✅ |
+| **Health check** endpoint (DB ping) | ✅ |
+| **Prometheus metrics** endpoint | ✅ |
+| **Email / username case normalization** (lowercased on register/login) | ✅ |
+| **Password change** | ✅ |
+| **User self‑deletion** | ✅ |
+| **Admin user deletion** | ✅ |
+| **Admin user list pagination** | ✅ |
+| **DTO‑validated role updates** (`@IsEnum`) | ✅ |
+| **Scheduled expired‑token cleanup** (hourly) | ✅ |
+| **Production‑env validation** at startup | ✅ |
 | Multi‑database support (5 providers) | ✅ |
 | Swagger / OpenAPI docs | ✅ |
 | Docker Compose (NestJS + PostgreSQL) | ✅ |
-| E2E test suite (31 tests) | ✅ |
+| E2E test suite (41 tests) | ✅ |
 
 ---
 
@@ -136,8 +149,8 @@ prisma/providers/
 
 ```
 src/
-├── main.ts                     # Bootstrap · Pino Logger · Swagger · Global guards
-├── app.module.ts               # Root module · ThrottlerModule · RolesGuard provider
+├── main.ts                     # Bootstrap · Helmet · Pino Logger · Swagger · Global guards
+├── app.module.ts               # Root module · LoggerModule · ThrottlerModule · RolesGuard
 ├── common/
 │   ├── constants/role.ts       # TS Role enum (ADMIN, MODERATOR, DONATOR, USER)
 │   ├── decorators/roles.decorator.ts
@@ -145,9 +158,10 @@ src/
 │   ├── response.interceptor.ts # { success, data, message, timestamp }
 │   └── http-exception.filter.ts
 ├── auth/
-│   ├── auth.controller.ts      # register · login · refresh · logout
-│   ├── auth.service.ts
-│   ├── token.service.ts        # JWT + refresh-token generation & rotation
+│   ├── auth.controller.ts      # register · login · refresh · logout · invite-codes
+│   ├── auth.service.ts         # Case‑normalized register/login
+│   ├── token.service.ts        # JWT + refresh‑token generation, atomic rotation, cleanup
+│   ├── token-cleanup.service.ts# Scheduled hourly cleanup of expired / revoked tokens
 │   ├── jwt.strategy.ts         # Passport strategy (sub + role in payload)
 │   ├── jwt-auth.guard.ts       # Global guard · @Public() bypass
 │   └── dto/
@@ -155,8 +169,17 @@ src/
 │       ├── login.dto.ts
 │       └── refresh.dto.ts
 ├── user/
-│   ├── user.controller.ts      # profile · list (ADMIN) · updateRole (ADMIN)
-│   └── user.service.ts
+│   ├── user.controller.ts      # profile · list (ADMIN, paginated) · updateRole · changePassword · delete
+│   ├── user.service.ts
+│   └── dto/
+│       ├── change-password.dto.ts
+│       └── update-role.dto.ts
+├── health/
+│   ├── health.controller.ts    # GET /health · DB ping
+│   └── health.module.ts
+├── metrics/
+│   ├── metrics.controller.ts   # GET /metrics · Prometheus text format
+│   └── metrics.module.ts
 └── prisma/
     ├── prisma.service.ts       # Singleton PrismaClient
     └── prisma.module.ts
@@ -280,17 +303,76 @@ Requires `Authorization: Bearer <accessToken>`.
 ---
 
 ### `GET /api/user` <sub>🔒 ADMIN</sub>
-List all users. `@Roles(Role.ADMIN)`.
+List all users (paginated). `@Roles(Role.ADMIN)`.
+
+**Query params**
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `skip` | integer | `0` | Records to skip |
+| `take` | integer | `100` | Records to take (max 100) |
+
+**Response `200`**
+```json
+{
+  "success": true,
+  "data": {
+    "users": [ { "id": "…", "username": "…", "email": "…", "role": "USER", "createdAt": "…" } ],
+    "total": 42,
+    "skip": 0,
+    "take": 100
+  }
+}
+```
 
 ---
 
 ### `PATCH /api/user/:id/role` <sub>🔒 ADMIN</sub>
-Change a user's role.
+Change a user's role. Uses DTO with `@IsEnum(Role)` validation.
 
 **Request**
 ```json
 { "role": "MODERATOR" }
 ```
+
+---
+
+### `PATCH /api/user/profile/password`
+Change the authenticated user's password.
+
+**Request**
+```json
+{ "currentPassword": "Str0ng!Pass", "newPassword": "N3w!Pass456" }
+```
+
+---
+
+### `DELETE /api/user/profile`
+Delete the authenticated user's account permanently.
+
+**Response `200`**
+```json
+{ "success": true, "data": { "message": "User deleted" }, … }
+```
+
+---
+
+### `DELETE /api/user/:id` <sub>🔒 ADMIN</sub>
+Admin‑delete any user account.
+
+---
+
+### `GET /api/health`
+Public health check that pings the database.
+
+**Response `200`**
+```json
+{ "success": true, "data": { "status": "ok", "database": "connected" }, … }
+```
+
+---
+
+### `GET /api/metrics`
+Prometheus metrics (default process metrics collected via `prom-client`). `@Public()`. Not shown in Swagger.
 
 ---
 
@@ -379,7 +461,7 @@ npm run docker:down         # stop everything
 npm run test:e2e
 ```
 
-31 tests covering registration, login, refresh‑token rotation (incl. expired + revoked), logout, invite‑code generation, RBAC enforcement (incl. tampered JWT), validation, duplicate‑detection, and error‑response shape contract. A dedicated `test.db` is used and automatically cleaned up.
+41 tests covering registration, login, refresh‑token rotation (atomic, expired, revoked), logout, invite‑code generation, RBAC enforcement (incl. tampered JWT, DTO validation), paginated user list, case normalization, password change, user self‑deletion, admin user deletion, health check, and error‑response contract. A dedicated `test.db` is used and automatically cleaned up.
 
 ---
 
@@ -390,6 +472,8 @@ npm run test:e2e
 | `npm run build` | Compile TypeScript → `dist/` |
 | `npm run dev` | Watch mode (auto‑restart) |
 | `npm run start:prod` | Run from `dist/main.js` |
+| `npm run type-check` | `tsc --noEmit` (type‑check only) |
+| `npm run lint` | `tsc --noEmit` (type‑check only) |
 | `npm run setup` | `prisma:generate` + `prisma:push` + `seed` |
 | `npm run seed` | Seed users (admin/mod/donor) + invite codes |
 | `npm run test:e2e` | End‑to‑end test suite |

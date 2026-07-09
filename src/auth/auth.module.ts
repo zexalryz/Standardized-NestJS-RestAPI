@@ -6,6 +6,7 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 import { TokenService } from './token.service';
+import { TokenCleanupService } from './token-cleanup.service';
 
 @Module({
   imports: [
@@ -14,7 +15,7 @@ import { TokenService } from './token.service';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET', 'secret'),
+        secret: config.getOrThrow<string>('JWT_SECRET'),
         signOptions: {
           expiresIn: (config.get<string>('JWT_EXPIRATION', '15m')) as any,
         },
@@ -22,7 +23,7 @@ import { TokenService } from './token.service';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, TokenService],
+  providers: [AuthService, JwtStrategy, TokenService, TokenCleanupService],
   exports: [AuthService, TokenService],
 })
 export class AuthModule {}

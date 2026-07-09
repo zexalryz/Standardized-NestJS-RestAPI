@@ -265,27 +265,42 @@ describe('Auth API (e2e)', () => {
     adminToken = res.body.data.accessToken;
   });
 
-  it('GET /api/user — lists all users for admin', async () => {
+  it('GET /api/user — lists all users for admin (paginated)', async () => {
     const res = await request(app.getHttpServer())
       .get('/api/user')
       .set('Authorization', `Bearer ${adminToken}`)
       .expect(200);
     expect(res.body.success).toBe(true);
-    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body.data).toHaveProperty('users');
+    expect(res.body.data).toHaveProperty('total');
+    expect(res.body.data).toHaveProperty('skip', 0);
+    expect(res.body.data).toHaveProperty('take', 100);
+    expect(Array.isArray(res.body.data.users)).toBe(true);
     // Should include all seeded users + alice
-    expect(res.body.data.length).toBeGreaterThanOrEqual(4);
-    const names = res.body.data.map((u: any) => u.username);
+    expect(res.body.data.users.length).toBeGreaterThanOrEqual(4);
+    expect(res.body.data.total).toBeGreaterThanOrEqual(4);
+    const names = res.body.data.users.map((u: any) => u.username);
     expect(names).toContain('admin');
     expect(names).toContain('mod');
     expect(names).toContain('donor');
     expect(names).toContain('alice');
   });
 
+  it('GET /api/user — pagination works', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/user?skip=0&take=2')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    expect(res.body.data.users.length).toBeLessThanOrEqual(2);
+    expect(res.body.data.skip).toBe(0);
+    expect(res.body.data.take).toBe(2);
+  });
+
   it('PATCH /api/user/:id/role — admin can update user role', async () => {
     const listRes = await request(app.getHttpServer())
       .get('/api/user')
       .set('Authorization', `Bearer ${adminToken}`);
-    const alice = listRes.body.data.find((u: any) => u.username === 'alice');
+    const alice = listRes.body.data.users.find((u: any) => u.username === 'alice');
     expect(alice).toBeDefined();
 
     const res = await request(app.getHttpServer())
@@ -294,6 +309,21 @@ describe('Auth API (e2e)', () => {
       .send({ role: 'DONATOR' })
       .expect(200);
     expect(res.body.data.role).toBe('DONATOR');
+  });
+
+  it('PATCH /api/user/:id/role — rejects invalid role via DTO', async () => {
+    const listRes = await request(app.getHttpServer())
+      .get('/api/user')
+      .set('Authorization', `Bearer ${adminToken}`);
+    const alice = listRes.body.data.users.find((u: any) => u.username === 'alice');
+    expect(alice).toBeDefined();
+
+    const res = await request(app.getHttpServer())
+      .patch(`/api/user/${alice.id}/role`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ role: 'INVALID_ROLE' })
+      .expect(400);
+    expect(res.body.success).toBe(false);
   });
 
   it('GET /api/user — rejects non-admin (MODERATOR)', async () => {
@@ -320,7 +350,7 @@ describe('Auth API (e2e)', () => {
     const listRes = await request(app.getHttpServer())
       .get('/api/user')
       .set('Authorization', `Bearer ${adminToken}`);
-    const mod = listRes.body.data.find((u: any) => u.username === 'mod');
+    const mod = listRes.body.data.users.find((u: any) => u.username === 'mod');
     expect(mod).toBeDefined();
 
     const res = await request(app.getHttpServer())
@@ -469,6 +499,175 @@ describe('Auth API (e2e)', () => {
     expect(res.body.error.message).toMatch(/user not found/i);
   });
 
+  // ─── New Endpoints ──────────────────────────────────────
+
+  it('GET /api/health — returns ok with db connected', async () => {
+    const res = await request(app.getHttpServer()).get('/api/health').expect(200);
+    expect(res.body.data.status).toBe('ok');
+    expect(res.body.data.database).toBe('connected');
+  });
+
+  // ─── Case Normalization ────────────────────────────────
+
+  it('POST /api/auth/register — normalizes username to lowercase', async () => {
+    const genRes = await request(app.getHttpServer())
+      .post('/api/auth/invite-codes')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ count: 1 })
+      .expect(201);
+    const code = genRes.body.data.codes[0];
+
+    const res = await request(app.getHttpServer())
+      .post('/api/auth/register')
+      .send({ username: 'UPPERCASE_USER', email: 'upper@test.com', password: 'Str0ng!Pass', inviteCode: code })
+      .expect(201);
+    expect(res.body.data.accessToken).toBeDefined();
+
+    // Login with lowercase should work
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ username: 'uppercase_user', password: 'Str0ng!Pass' })
+      .expect(201);
+    expect(loginRes.body.data.accessToken).toBeDefined();
+  });
+
+  it('POST /api/auth/login — normalizes username to lowercase', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ username: 'ALICE', password: validUser.password })
+      .expect(201);
+    expect(res.body.data.accessToken).toBeDefined();
+  });
+
+  // ─── Password Change ───────────────────────────────────
+
+  it('PATCH /api/user/profile/password — changes password', async () => {
+    // Login with current password
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ username: validUser.username, password: validUser.password })
+      .expect(201);
+    const tok = loginRes.body.data.accessToken;
+
+    // Change password
+    const res = await request(app.getHttpServer())
+      .patch('/api/user/profile/password')
+      .set('Authorization', `Bearer ${tok}`)
+      .send({ currentPassword: validUser.password, newPassword: 'N3wStr0ng!Pass' })
+      .expect(200);
+    expect(res.body.data.message).toBe('Password changed');
+
+    // Login with new password
+    const newLogin = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ username: validUser.username, password: 'N3wStr0ng!Pass' })
+      .expect(201);
+    expect(newLogin.body.data.accessToken).toBeDefined();
+
+    // Restore original password
+    const tok2 = newLogin.body.data.accessToken;
+    await request(app.getHttpServer())
+      .patch('/api/user/profile/password')
+      .set('Authorization', `Bearer ${tok2}`)
+      .send({ currentPassword: 'N3wStr0ng!Pass', newPassword: validUser.password })
+      .expect(200);
+  });
+
+  it('PATCH /api/user/profile/password — rejects wrong current password', async () => {
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ username: validUser.username, password: validUser.password })
+      .expect(201);
+
+    const res = await request(app.getHttpServer())
+      .patch('/api/user/profile/password')
+      .set('Authorization', `Bearer ${loginRes.body.data.accessToken}`)
+      .send({ currentPassword: 'WrongPass1!', newPassword: 'N3wStr0ng!Pass' })
+      .expect(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.message).toMatch(/incorrect/i);
+  });
+
+  // ─── User Deletion (self) ──────────────────────────────
+
+  let deleteUserToken: string;
+
+  it('DELETE /api/user/profile — deletes own account', async () => {
+    const genRes = await request(app.getHttpServer())
+      .post('/api/auth/invite-codes')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ count: 1 })
+      .expect(201);
+    const code = genRes.body.data.codes[0];
+
+    const regRes = await request(app.getHttpServer())
+      .post('/api/auth/register')
+      .send({ username: 'delete_me', email: 'delete@test.com', password: 'Str0ng!Pass', inviteCode: code })
+      .expect(201);
+    deleteUserToken = regRes.body.data.accessToken;
+
+    const res = await request(app.getHttpServer())
+      .delete('/api/user/profile')
+      .set('Authorization', `Bearer ${deleteUserToken}`)
+      .expect(200);
+    expect(res.body.data.message).toBe('User deleted');
+
+    // Subsequent profile fetch fails
+    const profileRes = await request(app.getHttpServer())
+      .get('/api/user/profile')
+      .set('Authorization', `Bearer ${deleteUserToken}`)
+      .expect(401);
+    expect(profileRes.body.success).toBe(false);
+  });
+
+  // ─── Admin User Deletion ───────────────────────────────
+
+  let adminDeleteTarget: any;
+
+  it('DELETE /api/user/:id — admin can delete a user', async () => {
+    const genRes = await request(app.getHttpServer())
+      .post('/api/auth/invite-codes')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ count: 1 })
+      .expect(201);
+    const code = genRes.body.data.codes[0];
+
+    const regRes = await request(app.getHttpServer())
+      .post('/api/auth/register')
+      .send({ username: 'admin_delete_target', email: 'admindel@test.com', password: 'Str0ng!Pass', inviteCode: code })
+      .expect(201);
+
+    const listRes = await request(app.getHttpServer())
+      .get('/api/user')
+      .set('Authorization', `Bearer ${adminToken}`);
+    adminDeleteTarget = listRes.body.data.users.find((u: any) => u.username === 'admin_delete_target');
+
+    const res = await request(app.getHttpServer())
+      .delete(`/api/user/${adminDeleteTarget.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    expect(res.body.data.message).toBe('User deleted');
+  });
+
+  it('DELETE /api/user/:id — rejects non-admin', async () => {
+    const donorLogin = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ username: 'donor', password: 'Donor1234' })
+      .expect(201);
+    const donorToken = donorLogin.body.data.accessToken;
+
+    const listRes = await request(app.getHttpServer())
+      .get('/api/user')
+      .set('Authorization', `Bearer ${adminToken}`);
+    const donor = listRes.body.data.users.find((u: any) => u.username === 'donor');
+
+    const res = await request(app.getHttpServer())
+      .delete(`/api/user/${donor.id}`)
+      .set('Authorization', `Bearer ${donorToken}`)
+      .expect(403);
+    expect(res.body.success).toBe(false);
+  });
+
   // ─── Error Response Contract ────────────────────────────
 
   it('error responses include success, error.code, error.message, timestamp', async () => {
@@ -477,10 +676,10 @@ describe('Auth API (e2e)', () => {
     expect(r1.body).toMatchObject({ success: false, error: { code: expect.any(String), message: expect.any(String) } });
     expect(typeof r1.body.timestamp).toBe('string');
 
-    // 400 — validation
+    // 400 — validation (use login to avoid register rate limit)
     const r2 = await request(app.getHttpServer())
-      .post('/api/auth/register')
-      .send({ username: 'ab', email: 'x', password: '', inviteCode: '' })
+      .post('/api/auth/login')
+      .send({ username: '  ', password: '' })
       .expect(400);
     expect(r2.body).toMatchObject({ success: false, error: { code: expect.any(String), message: expect.any(String) } });
     expect(typeof r2.body.timestamp).toBe('string');

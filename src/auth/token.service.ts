@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 export class TokenService {
   private readonly accessExpiresIn: string;
   private readonly refreshExpiresInDays: number;
+  private readonly logger = new Logger(TokenService.name);
 
   constructor(
     private readonly jwt: JwtService,
@@ -15,7 +16,6 @@ export class TokenService {
     private readonly prisma: PrismaService,
   ) {
     this.accessExpiresIn = this.config.get<string>('JWT_EXPIRATION', '15m');
-    // refresh token lives 7x the access token lifetime (or default 7 days)
     this.refreshExpiresInDays = 7;
   }
 
@@ -37,15 +37,20 @@ export class TokenService {
   }
 
   async rotateRefreshToken(oldToken: string): Promise<{ accessToken: string; refreshToken: string }> {
-    const stored = await this.prisma.refreshToken.findUnique({ where: { token: oldToken } });
-    if (!stored || stored.revoked || stored.expiresAt < new Date()) {
-      throw new UnauthorizedException('Invalid or expired refresh token');
-    }
+    // Atomic: only one concurrent request wins the revoke
+    const { count } = await this.prisma.refreshToken.updateMany({
+      where: { token: oldToken, revoked: false, expiresAt: { gt: new Date() } },
+      data: { revoked: true },
+    });
+    if (count === 0) throw new UnauthorizedException('Invalid or expired refresh token');
 
-    // Revoke old token
-    await this.prisma.refreshToken.update({ where: { id: stored.id }, data: { revoked: true } });
+    // Fetch the userId from the now-revoked token
+    const stored = await this.prisma.refreshToken.findUnique({
+      where: { token: oldToken },
+      select: { userId: true },
+    });
+    if (!stored) throw new UnauthorizedException('Invalid or expired refresh token');
 
-    // Fetch user for new token
     const user = await this.prisma.user.findUnique({ where: { id: stored.userId } });
     if (!user) throw new UnauthorizedException('User not found');
 
@@ -60,5 +65,13 @@ export class TokenService {
       where: { token, revoked: false },
       data: { revoked: true },
     });
+  }
+
+  async cleanupExpiredTokens(): Promise<number> {
+    const { count } = await this.prisma.refreshToken.deleteMany({
+      where: { OR: [{ revoked: true }, { expiresAt: { lte: new Date() } }] },
+    });
+    if (count > 0) this.logger.log(`Cleaned up ${count} expired/revoked refresh tokens`);
+    return count;
   }
 }

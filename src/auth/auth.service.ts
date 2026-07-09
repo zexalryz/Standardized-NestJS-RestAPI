@@ -22,7 +22,9 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto) {
-    const { username, email, password, inviteCode } = dto;
+    const { password, inviteCode } = dto;
+    const username = dto.username.toLowerCase();
+    const email = dto.email.toLowerCase();
 
     const invite = await this.prisma.inviteCode.findUnique({
       where: { code: inviteCode },
@@ -53,7 +55,8 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
-    const { username, password } = dto;
+    const { password } = dto;
+    const username = dto.username.toLowerCase();
 
     const user = await this.prisma.user.findUnique({ where: { username } });
     if (!user) throw new UnauthorizedException('Invalid credentials');
