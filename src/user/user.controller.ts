@@ -5,6 +5,7 @@ import { UserService } from './user.service';
 import { Roles } from '../common/decorators/roles.decorator';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 
 @ApiTags('Users')
 @ApiBearerAuth()
@@ -19,6 +20,24 @@ export class UserController {
   })
   getProfile(@Req() req: any) {
     return this.user.getProfile(req.user.id);
+  }
+
+  @Patch('profile')
+  @ApiOperation({
+    summary: 'Update profile',
+    description: 'Update the authenticated user\'s profile. Currently supports changing email address.',
+  })
+  updateProfile(@Req() req: any, @Body() dto: UpdateProfileDto) {
+    return this.user.updateProfile(req.user.id, dto);
+  }
+
+  @Get('stats')
+  @ApiOperation({
+    summary: 'Dashboard stats',
+    description: 'Returns aggregate statistics for the dashboard: total users, new users in last 7 days, and role distribution.',
+  })
+  stats() {
+    return this.user.stats();
   }
 
   @Get()

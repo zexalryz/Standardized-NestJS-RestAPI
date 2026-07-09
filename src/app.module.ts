@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
 import { HealthModule } from './health/health.module';
 import { MetricsModule } from './metrics/metrics.module';
+import { ActivityModule } from './activity/activity.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { MetricsModule } from './metrics/metrics.module';
     UserModule,
     HealthModule,
     MetricsModule,
+    ActivityModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
