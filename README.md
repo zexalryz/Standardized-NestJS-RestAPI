@@ -38,6 +38,9 @@ A **standardized REST API** for user authentication, built as a starter template
 | **Health check** endpoint (DB ping) | ✅ |
 | **Prometheus metrics** endpoint | ✅ |
 | **Email / username case normalization** (lowercased on register/login) | ✅ |
+| **Activity logging** — server‑side activity feed per user | ✅ |
+| **Dashboard stats** endpoint (total users, new‑7d, role distribution) | ✅ |
+| **Profile update** (email change) | ✅ |
 | **Password change** | ✅ |
 | **User self‑deletion** | ✅ |
 | **Admin user deletion** | ✅ |
@@ -96,7 +99,8 @@ Endpoints are organized under two tags in the Swagger UI:
 | Tag | Endpoints | Auth |
 |-----|-----------|------|
 | **Authentication** | `POST /auth/register` · `POST /auth/login` · `POST /auth/refresh` · `POST /auth/logout` · `POST /auth/invite-codes` | Register/login/refresh/logout are `@Public()` — no token needed; `invite-codes` requires `ADMIN` or `MODERATOR` role + Bearer token |
-| **Users** | `GET /user/profile` · `GET /user` · `PATCH /user/:id/role` | Bearer token required; list & role endpoints restricted to `ADMIN` |
+| **Users** | `GET /user/profile` · `PATCH /user/profile` · `GET /user/stats` · `GET /user` · `PATCH /user/:id/role` · `PATCH /user/profile/password` · `DELETE /user/profile` · `DELETE /user/:id` | Bearer token required; list, role, and delete endpoints restricted to `ADMIN` |
+| **Activity** | `POST /activity` · `GET /activity` | Bearer token required |
 
 ### Authorize button 🔑
 
@@ -168,12 +172,18 @@ src/
 │       ├── register.dto.ts
 │       ├── login.dto.ts
 │       └── refresh.dto.ts
+├── activity/
+│   ├── activity.controller.ts  # POST /activity · GET /activity
+│   ├── activity.service.ts     # Log & list activity events per user
+│   └── dto/
+│       └── create-activity.dto.ts
 ├── user/
-│   ├── user.controller.ts      # profile · list (ADMIN, paginated) · updateRole · changePassword · delete
+│   ├── user.controller.ts      # profile · updateProfile · stats · list · updateRole · changePassword · delete
 │   ├── user.service.ts
 │   └── dto/
 │       ├── change-password.dto.ts
-│       └── update-role.dto.ts
+│       ├── update-role.dto.ts
+│       └── update-profile.dto.ts
 ├── health/
 │   ├── health.controller.ts    # GET /health · DB ping
 │   └── health.module.ts
@@ -302,6 +312,45 @@ Requires `Authorization: Bearer <accessToken>`.
 
 ---
 
+### `PATCH /api/user/profile`
+Update the authenticated user's profile. Currently supports changing email address.
+
+**Request**
+```json
+{ "email": "newemail@example.com" }
+```
+
+**Response `200`**
+```json
+{
+  "success": true,
+  "data": { "id": "…", "username": "john_doe", "email": "newemail@example.com", "role": "USER", "createdAt": "…" }
+}
+```
+
+---
+
+### `GET /api/user/stats`
+Returns aggregate statistics for the dashboard: total users, new users in last 7 days, and role distribution.
+
+**Response `200`**
+```json
+{
+  "success": true,
+  "data": {
+    "totalUsers": 5,
+    "newUsers7d": 2,
+    "roleDistribution": [
+      { "role": "ADMIN", "count": 1 },
+      { "role": "MODERATOR", "count": 1 },
+      { "role": "USER", "count": 3 }
+    ]
+  }
+}
+```
+
+---
+
 ### `GET /api/user` <sub>🔒 ADMIN</sub>
 List all users (paginated). `@Roles(Role.ADMIN)`.
 
@@ -373,6 +422,54 @@ Public health check that pings the database.
 
 ### `GET /api/metrics`
 Prometheus metrics (default process metrics collected via `prom-client`). `@Public()`. Not shown in Swagger.
+
+---
+
+### `POST /api/activity`
+Log an activity event for the authenticated user (e.g. login, password change). Events are stored server-side and available via `GET /api/activity`.
+
+**Request**
+```json
+{ "type": "password_change", "detail": "Changed account password" }
+```
+
+**Validation**
+
+| Field | Rules |
+|-------|-------|
+| `type` | 1–50 chars, required |
+| `detail` | 0–500 chars, optional |
+
+**Response `201`**
+```json
+{
+  "success": true,
+  "data": { "id": "uuid" },
+  "message": "Created",
+  "timestamp": "2026-07-09T12:00:00.000Z"
+}
+```
+
+---
+
+### `GET /api/activity`
+Return recent activity events for the authenticated user, most recent first. Default 50, max 100.
+
+**Query params**
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `take` | integer | `50` | Number of entries (max 100) |
+
+**Response `200`**
+```json
+{
+  "success": true,
+  "data": [
+    { "id": "uuid", "type": "password_change", "detail": "Changed account password", "createdAt": "2026-07-09T12:00:00.000Z" },
+    { "id": "uuid", "type": "login", "detail": "Logged in as admin", "createdAt": "2026-07-09T11:00:00.000Z" }
+  ]
+}
+```
 
 ---
 
