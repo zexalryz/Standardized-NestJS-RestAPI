@@ -1,30 +1,33 @@
-// This is the active schema. Switch providers via: node scripts/switch-db.mjs <provider>
-// Provider-specific schemas live in prisma/providers/
+// MongoDB limitations:
+// - @updatedAt is not supported; use a DateTime field + manual update
+// - onDelete: Cascade is not supported; clean up manually
+// - @db.ObjectId required for reference fields
+// - @@index on relation fields may need different syntax
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "mongodb"
   url      = env("DATABASE_URL")
 }
 
 model User {
-  id             String         @id @default(uuid())
+  id             String         @id @default(auto()) @map("_id") @db.ObjectId
   username       String         @unique
   email          String         @unique
   password       String
   role           String         @default("USER")
   refreshTokens  RefreshToken[]
   createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  updatedAt      DateTime       @updatedAt // ponytail: ignored by MongoDB, update manually
 }
 
 model RefreshToken {
-  id        String   @id @default(uuid())
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
   token     String   @unique
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String   @db.ObjectId
+  user      User     @relation(fields: [userId], references: [id]) // ponytail: no Cascade, delete manually
   expiresAt DateTime
   createdAt DateTime @default(now())
   revoked   Boolean  @default(false)

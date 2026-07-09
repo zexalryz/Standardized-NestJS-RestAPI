@@ -1,5 +1,5 @@
-import { PrismaClient } from '@prisma/client';
-import * as bcrypt from 'bcrypt';
+const { PrismaClient } = require('@prisma/client');
+const bcrypt = require('bcrypt');
 
 const prisma = new PrismaClient();
 
@@ -18,7 +18,7 @@ async function main() {
       update: { role: u.role },
       create: { username: u.username, email: u.email, password: hashed, role: u.role },
     });
-    console.log(`  user: ${u.username} (${u.role})`);
+    console.log('  user: ' + u.username + ' (' + u.role + ')');
   }
 
   // Seed invite codes

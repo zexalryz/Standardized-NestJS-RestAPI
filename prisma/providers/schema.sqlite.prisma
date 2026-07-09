@@ -1,5 +1,3 @@
-// This is the active schema. Switch providers via: node scripts/switch-db.mjs <provider>
-// Provider-specific schemas live in prisma/providers/
 generator client {
   provider = "prisma-client-js"
 }

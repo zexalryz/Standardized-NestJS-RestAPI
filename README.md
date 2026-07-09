@@ -1,67 +1,178 @@
-# Auth API
+<p align="center">
+  <img src="https://nestjs.com/img/logo-small.svg" width="100" alt="NestJS" />
+  <h1 align="center"><code>⌘ Auth API</code></h1>
+</p>
 
-Standardized REST API for user authentication with invite-code registration.
+<p align="center">
+  <b>Production‑ready authentication template</b> — NestJS 11 · Prisma ORM · JWT · RBAC · Rate‑limiting · Structured logging
+</p>
 
-Built with **NestJS** + **Prisma** (SQLite) + **JWT**.
+<p align="center">
+  <img alt="Node" src="https://img.shields.io/badge/Node%2020-339933?logo=nodedotjs&logoColor=fff" />
+  <img alt="NestJS" src="https://img.shields.io/badge/NestJS%2011-E0234E?logo=nestjs&logoColor=fff" />
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript%206-3178C6?logo=typescript&logoColor=fff" />
+  <img alt="Prisma" src="https://img.shields.io/badge/Prisma%205-2D3748?logo=prisma&logoColor=fff" />
+  <img alt="SQLite" src="https://img.shields.io/badge/SQLite-003B57?logo=sqlite&logoColor=fff" />
+  <img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=fff" />
+  <img alt="Docker" src="https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=fff" />
+</p>
 
-## Features
+---
 
-- User registration with single-use invite codes
-- Login with username / password
-- JWT-based authentication
-- Input validation (password strength, username format, email)
-- Standardized JSON response envelope
-- OpenAPI / Swagger documentation
+## ✦ Overview
 
-## Tech Stack
+A **standardized REST API** for user authentication, built as a starter template that scales from local prototyping to production deployments.
 
-| Layer | Choice |
-|-------|--------|
-| Runtime | Node.js 20 |
-| Framework | NestJS 11 |
-| Database | SQLite (via Prisma ORM) |
-| Auth | Passport + JWT (bearer tokens) |
-| Validation | class-validator + class-transformer |
-| Docs | @nestjs/swagger (OpenAPI 3.0) |
+| Feature | Status |
+|---------|--------|
+| Registration via single‑use invite codes | ✅ |
+| JWT access tokens (short‑lived) | ✅ |
+| Refresh token rotation (UUID + DB storage) | ✅ |
+| Role‑Based Access Control (Admin / Moderator / Donator / User) | ✅ |
+| Rate limiting (configurable) | ✅ |
+| Structured JSON logging (Pino) | ✅ |
+| Multi‑database support (5 providers) | ✅ |
+| Swagger / OpenAPI docs | ✅ |
+| Docker Compose (NestJS + PostgreSQL) | ✅ |
+| E2E test suite (20 tests) | ✅ |
 
-## Quick Start
+---
+
+## ✦ Quick Start
 
 ```bash
-# Install dependencies
 npm install
-
-# Generate Prisma client, push schema & seed invite codes
-npm run setup
-
-# Start in development mode (watch)
-npm run dev
-
-# Or start production build
-npm run build
-npm run start:prod
+npm run setup                    # generate Prisma client → push schema → seed
+npm run dev                      # http://localhost:4000
 ```
 
-Server starts on **http://localhost:4000** (configurable via `API_PORT` in `.env`).
+```bash
+# register
+curl -X POST http://localhost:4000/api/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"alice","email":"alice@test.com","password":"Str0ng!Pass","inviteCode":"INVITE-2024-001"}'
 
-## Environment Variables
+# login
+curl -X POST http://localhost:4000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"alice","password":"Str0ng!Pass"}'
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `API_PORT` | `4000` | Server port |
-| `DATABASE_URL` | `file:./dev.db` | SQLite database path |
-| `JWT_SECRET` | `change-me-to-a-random-secret-in-production` | Secret for signing JWT tokens |
-| `JWT_EXPIRATION` | `7d` | Token expiry duration |
+# profile
+curl http://localhost:4000/api/user/profile \
+  -H 'Authorization: Bearer <TOKEN>'
+```
 
-## API Endpoints
+> Swagger UI is available at [`http://localhost:4000/docs`](http://localhost:4000/docs).
 
-Base URL: `http://localhost:4000/api`
+---
+
+## ✦ Swagger / OpenAPI
+
+The API is fully documented with **@nestjs/swagger** (OpenAPI 3.0). After starting the server, visit:
+
+| Resource | URL |
+|----------|-----|
+| Swagger UI | [`http://localhost:4000/docs`](http://localhost:4000/docs) |
+| OpenAPI JSON | [`http://localhost:4000/docs-json`](http://localhost:4000/docs-json) |
+
+### Tags
+
+Endpoints are organized under two tags in the Swagger UI:
+
+| Tag | Endpoints | Auth |
+|-----|-----------|------|
+| **Authentication** | `POST /auth/register` · `POST /auth/login` · `POST /auth/refresh` · `POST /auth/logout` | All `@Public()` — no token needed |
+| **Users** | `GET /user/profile` · `GET /user` · `PATCH /user/:id/role` | Bearer token required; list & role endpoints restricted to `ADMIN` |
+
+### Authorize button 🔑
+
+The Swagger UI has an **Authorize** button in the top‑right corner. Paste your JWT access token there (without the `Bearer` prefix) to unlock protected endpoints. Tokens can be obtained from `POST /auth/login` or `POST /auth/register`.
+
+### Example flow
+
+1. Open [`http://localhost:4000/docs`](http://localhost:4000/docs)
+2. Try `POST /auth/login` with `{"username": "admin", "password": "Admin1234"}`
+3. Copy the `accessToken` from the response
+4. Click **Authorize** and paste the token → click **Authorize**
+5. Now you can call `GET /user` and `PATCH /user/:id/role` directly from the UI
+
+### Response schema
+
+Every endpoint returns the standardized envelope. The Swagger UI displays the exact schema for both success and error responses, including field types, validation rules, and examples for each DTO.
+
+---
+
+## ✦ Database Providers
+
+The template ships with **five Prisma schemas** — switch with a single command:
+
+```bash
+npm run db:switch postgres          # PostgreSQL
+npm run db:switch mysql            # MySQL
+npm run db:switch mssql            # Microsoft SQL Server
+npm run db:switch mongo            # MongoDB
+npm run db:switch sqlite           # SQLite (default)
+```
+
+Each command copies the matching provider schema to `prisma/schema.prisma` and prints a `DATABASE_URL` hint.
+
+> **Note:** `npm run setup` generates the client and pushes the schema. Run it after switching providers.
+
+### Provider schemas
+
+```
+prisma/providers/
+├── schema.postgres.prisma      # PostgreSQL
+├── schema.mysql.prisma         # MySQL
+├── schema.mssql.prisma         # SQL Server
+├── schema.mongodb.prisma       # MongoDB  (Δ: @db.ObjectId, no Cascade)
+└── schema.sqlite.prisma        # SQLite   (Δ: no enums — String field)
+```
+
+---
+
+## ✦ Architecture
+
+```
+src/
+├── main.ts                     # Bootstrap · Pino Logger · Swagger · Global guards
+├── app.module.ts               # Root module · ThrottlerModule · RolesGuard provider
+├── common/
+│   ├── constants/role.ts       # TS Role enum (ADMIN, MODERATOR, DONATOR, USER)
+│   ├── decorators/roles.decorator.ts
+│   ├── guards/roles.guard.ts   # @Roles() → 403 on mismatch
+│   ├── response.interceptor.ts # { success, data, message, timestamp }
+│   └── http-exception.filter.ts
+├── auth/
+│   ├── auth.controller.ts      # register · login · refresh · logout
+│   ├── auth.service.ts
+│   ├── token.service.ts        # JWT + refresh-token generation & rotation
+│   ├── jwt.strategy.ts         # Passport strategy (sub + role in payload)
+│   ├── jwt-auth.guard.ts       # Global guard · @Public() bypass
+│   └── dto/
+│       ├── register.dto.ts
+│       ├── login.dto.ts
+│       └── refresh.dto.ts
+├── user/
+│   ├── user.controller.ts      # profile · list (ADMIN) · updateRole (ADMIN)
+│   └── user.service.ts
+└── prisma/
+    ├── prisma.service.ts       # Singleton PrismaClient
+    └── prisma.module.ts
+```
+
+---
+
+## ✦ Endpoints
+
+All endpoints return the standard envelope (`success`, `data`, `message`, `timestamp`).
+
+---
 
 ### `POST /api/auth/register`
+Create an account. Requires a valid single‑use invite code.
 
-Create a new user account. Requires a valid single-use invite code.
-
-**Request body:**
-
+**Request**
 ```json
 {
   "username": "john_doe",
@@ -71,249 +182,197 @@ Create a new user account. Requires a valid single-use invite code.
 }
 ```
 
-**Validation rules:**
+**Validation**
 
 | Field | Rules |
 |-------|-------|
-| `username` | 3–30 chars, alphanumeric + underscores only |
-| `email` | Valid email format |
-| `password` | 8–128 chars, must include uppercase, lowercase, and digit |
-| `inviteCode` | Must be a valid, unused invite code |
+| `username` | 3–30 chars, alphanumeric + underscores |
+| `email` | valid email |
+| `password` | 8–128 chars, uppercase + lowercase + digit |
+| `inviteCode` | must exist and be unused |
 
-**Success response (201):**
-
+**Response `201`**
 ```json
 {
   "success": true,
-  "data": {
-    "accessToken": "eyJhbGciOiJIUzI1NiIs..."
-  },
-  "message": "OK",
-  "timestamp": "2026-07-08T14:44:37.386Z"
+  "data": { "accessToken": "…", "refreshToken": "uuid" },
+  "message": "Created",
+  "timestamp": "2026-07-09T12:00:00.000Z"
 }
-```
-
-**Error responses:**
-
-```json
-// Invalid invite code
-{ "success": false, "error": { "code": "Bad Request", "message": "Invalid invite code" } }
-
-// Already used invite code
-{ "success": false, "error": { "code": "Bad Request", "message": "Invite code already used" } }
-
-// Duplicate username
-{ "success": false, "error": { "code": "Conflict", "message": "Username already taken" } }
-
-// Duplicate email
-{ "success": false, "error": { "code": "Conflict", "message": "Email already registered" } }
-
-// Validation failure
-{ "success": false, "error": { "code": "Bad Request", "message": "username must be longer than or equal to 3 characters; email must be an email; ..." } }
 ```
 
 ---
 
 ### `POST /api/auth/login`
 
-Authenticate and receive a JWT token.
-
-**Request body:**
-
+**Request**
 ```json
-{
-  "username": "john_doe",
-  "password": "Str0ng!Pass"
-}
+{ "username": "john_doe", "password": "Str0ng!Pass" }
 ```
 
-**Success response (201):**
+**Response `201`** — same shape as register.
 
+---
+
+### `POST /api/auth/refresh`
+Exchange a valid refresh token for a new pair. **The old token is revoked** (rotation).
+
+**Request**
 ```json
-{
-  "success": true,
-  "data": {
-    "accessToken": "eyJhbGciOiJIUzI1NiIs..."
-  },
-  "message": "OK",
-  "timestamp": "2026-07-08T14:44:44.060Z"
-}
+{ "refreshToken": "uuid-from-previous-response" }
 ```
 
-**Error responses:**
+**Response `201`** — new `accessToken` + `refreshToken`.
 
+---
+
+### `POST /api/auth/logout`
+Revoke a refresh token immediately.
+
+**Request**
 ```json
-// Invalid credentials
-{ "success": false, "error": { "code": "Unauthorized", "message": "Invalid credentials" } }
+{ "refreshToken": "uuid-to-revoke" }
+```
+
+**Response `201`**
+```json
+{ "success": true, "data": { "message": "Logged out" }, … }
 ```
 
 ---
 
 ### `GET /api/user/profile`
+Requires `Authorization: Bearer <accessToken>`.
 
-Get the authenticated user's profile. Requires a valid JWT in the `Authorization` header.
-
-**Request:**
-
-```
-GET /api/user/profile
-Authorization: Bearer <token>
-```
-
-**Success response (200):**
-
+**Response `200`**
 ```json
 {
   "success": true,
-  "data": {
-    "id": "449fc9a2-374e-4f4a-b541-586e8424b289",
-    "username": "john_doe",
-    "email": "john@example.com",
-    "createdAt": "2026-07-08T14:44:37.363Z"
-  },
-  "message": "OK",
-  "timestamp": "2026-07-08T14:44:53.488Z"
+  "data": { "id": "…", "username": "john_doe", "email": "john@example.com", "role": "USER", "createdAt": "…" }
 }
 ```
 
-**Error responses:**
+---
 
+### `GET /api/user` <sub>🔒 ADMIN</sub>
+List all users. `@Roles(Role.ADMIN)`.
+
+---
+
+### `PATCH /api/user/:id/role` <sub>🔒 ADMIN</sub>
+Change a user's role.
+
+**Request**
 ```json
-// Missing / invalid token
-{ "success": false, "error": { "code": "INTERNAL_ERROR", "message": "Unauthorized" } }
-
-// User not found
-{ "success": false, "error": { "code": "Not Found", "message": "User not found" } }
+{ "role": "MODERATOR" }
 ```
 
-## Response Envelope
+---
 
-All responses follow the same shape:
+## ✦ Role Hierarchy
 
-**Success:**
+| Role | Tag | Permissions |
+|------|-----|-------------|
+| `ADMIN` | 🔒 | List users · Update roles |
+| `MODERATOR` | 🛡 | *(future moderate endpoints)* |
+| `DONATOR` | ⭐ | (same as USER) |
+| `USER` | 👤 | Profile, login, refresh |
 
-```json
-{
-  "success": true,
-  "data": { ... },
-  "message": "OK",
-  "timestamp": "2026-07-08T14:44:44.060Z"
-}
-```
-
-**Error:**
-
-```json
-{
-  "success": false,
-  "error": {
-    "code": "Bad Request",
-    "message": "Human-readable error description"
-  },
-  "timestamp": "2026-07-08T14:44:44.060Z"
-}
-```
-
-## Invite Code System
-
-5 seed invite codes are provided (see `prisma/seed.ts`):
-
-```
-INVITE-2024-001
-INVITE-2024-002
-INVITE-2024-003
-INVITE-2024-004
-INVITE-2024-005
-```
-
-Each code can be used **once only**. Once consumed, the code is marked as `used` in the database and cannot be reused.
-
-To generate more codes at runtime, insert them directly into the `InviteCode` table:
+Seeded users (password same as username + `1234`): `admin` / `mod` / `donor`.
 
 ```bash
-npx tsx -e "
-import { PrismaClient } from '@prisma/client';
-const p = new PrismaClient();
-await p.inviteCode.create({ data: { code: 'PROMO-2024-001' } });
-await p.\$disconnect();
-"
+curl -X POST http://localhost:4000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"Admin1234"}'
 ```
 
-## Project Structure
+---
 
-```
-auth-api/
-├── prisma/
-│   ├── schema.prisma          # User + InviteCode models
-│   └── seed.ts                # Invite code seeder
-├── src/
-│   ├── main.ts                # Entry point, Swagger setup, global config
-│   ├── app.module.ts          # Root module
-│   ├── types.d.ts             # Type declarations
-│   ├── common/
-│   │   ├── response.interceptor.ts   # Standard response envelope
-│   │   └── http-exception.filter.ts  # Standard error envelope
-│   ├── auth/
-│   │   ├── auth.controller.ts
-│   │   ├── auth.service.ts
-│   │   ├── auth.module.ts
-│   │   ├── jwt.strategy.ts
-│   │   ├── jwt-auth.guard.ts
-│   │   ├── public.decorator.ts
-│   │   └── dto/
-│   │       ├── register.dto.ts
-│   │       └── login.dto.ts
-│   ├── user/
-│   │   ├── user.controller.ts
-│   │   ├── user.service.ts
-│   │   └── user.module.ts
-│   └── prisma/
-│       ├── prisma.service.ts
-│       └── prisma.module.ts
-├── .env                       # Environment variables
-└── package.json
+## ✦ Rate Limiting
+
+Configured globally via `@nestjs/throttler`:
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `THROTTLE_TTL` | `60` | Window (seconds) |
+| `THROTTLE_LIMIT` | `60` | Max requests per window |
+
+Returns **`429 Too Many Requests`** when exceeded.
+
+---
+
+## ✦ Structured Logging
+
+Uses **nestjs-pino** with `bufferLogs: true`. Logs are output as newline‑delimited JSON:
+
+```json
+{"level":30,"time":1720500000000,"pid":1,"hostname":"...","name":"NestFactory","msg":"Starting Nest application..."}
 ```
 
-## Testing with cURL
+Add **pino-pretty** for human‑readable output in development:
 
 ```bash
-# Register a new user
-curl -s http://localhost:4000/api/auth/register \
-  -X POST \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"alice","email":"alice@test.com","password":"Str0ng!Pass","inviteCode":"INVITE-2024-001"}'
-
-# Login
-curl -s http://localhost:4000/api/auth/login \
-  -X POST \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"alice","password":"Str0ng!Pass"}'
-
-# Get profile (replace TOKEN with actual JWT)
-curl -s http://localhost:4000/api/user/profile \
-  -H 'Authorization: Bearer TOKEN'
+npm run dev | npx pino-pretty
 ```
 
-## Swagger / OpenAPI
+---
 
-- **UI:** http://localhost:4000/docs
-- **JSON:** http://localhost:4000/docs-json
+## ✦ Environment Variables
 
-The Swagger UI lets you explore and test every endpoint interactively. The **Authorize** button (top right) accepts a JWT token for protected endpoints.
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `API_PORT` | `4000` | HTTP port |
+| `NODE_ENV` | `development` | Environment |
+| `DATABASE_URL` | `file:./dev.db` | Prisma datasource URL |
+| `JWT_SECRET` | `dev-secret-123` | HMAC secret for access tokens |
+| `JWT_EXPIRATION` | `15m` | Access token TTL (ms‑format, e.g. `15m`, `1h`) |
+| `THROTTLE_TTL` | `60` | Rate‑limit window (seconds) |
+| `THROTTLE_LIMIT` | `60` | Max requests per window |
 
-## NPM Scripts
+---
 
-| Script | Description |
-|--------|-------------|
-| `npm run build` | Compile TypeScript to `dist/` |
-| `npm run start` | Start server from compiled output |
-| `npm run dev` | Watch mode (auto-restart on changes) |
-| `npm run start:prod` | Start from `dist/main.js` |
-| `npm run prisma:generate` | Regenerate Prisma client |
-| `npm run prisma:push` | Push schema to database |
-| `npm run seed` | Seed invite codes |
-| `npm run setup` | Generate client + push schema + seed |
+## ✦ Docker Compose
 
-## License
+```bash
+npm run docker:build        # build image
+npm run docker:up           # start api + postgres
+npm run docker:down         # stop everything
+```
 
-MIT
+> **First‑run step:** switch Prisma provider to PostgreSQL inside the container:
+> ```bash
+> docker compose exec api npm run db:switch postgres
+> docker compose restart api
+> ```
+
+---
+
+## ✦ Testing
+
+```bash
+npm run test:e2e
+```
+
+20 tests covering registration, login, refresh‑token rotation, logout, RBAC enforcement, validation, and duplicate‑detection. A dedicated `test.db` is used and automatically cleaned up.
+
+---
+
+## ✦ Scripts Reference
+
+| Script | Action |
+|--------|--------|
+| `npm run build` | Compile TypeScript → `dist/` |
+| `npm run dev` | Watch mode (auto‑restart) |
+| `npm run start:prod` | Run from `dist/main.js` |
+| `npm run setup` | `prisma:generate` + `prisma:push` + `seed` |
+| `npm run seed` | Seed users (admin/mod/donor) + invite codes |
+| `npm run test:e2e` | End‑to‑end test suite |
+| `npm run db:switch <provider>` | Swap Prisma provider schema |
+| `npm run docker:build` | `docker compose build` |
+| `npm run docker:up` | `docker compose up -d` |
+
+---
+
+## ✦ License
+
+MIT — free for any use.
